@@ -24,7 +24,6 @@ function populate_commit_info() {
     # Check if the array of commits is empty
     if [ ${#COMMITS[@]} -eq 0 ]; then
         echo "No commits detected since last CI run."
-        exit 0
     fi
 
     # Get commit messages for each commit
@@ -100,15 +99,14 @@ parse_changed_files
 # Check if we have any packages to build
 if [ ${#PACKAGES[@]} -eq 0 ]; then
     echo "No packages to build, exiting gracefully."
-    exit 0
-fi
-
-# Check if we have to build all packages
-if [[ -v "PACKAGES[all]" ]]; then
-    "$(dirname "$(realpath "$0")")"/schedule-packages.sh all
 else
-    "$(dirname "$(realpath "$0")")"/schedule-packages.sh "${!PACKAGES[@]}"
+    # Check if we have to build all packages
+    if [[ -v "PACKAGES[all]" ]]; then
+        "$(dirname "$(realpath "$0")")"/schedule-packages.sh all
+    else
+        "$(dirname "$(realpath "$0")")"/schedule-packages.sh "${!PACKAGES[@]}"
+    fi
 fi
 
-git tag -f v2
-git push --atomic -f origin HEAD:refs/heads/scheduled
+git tag -f scheduled
+git push --atomic -f origin refs/tags/scheduled

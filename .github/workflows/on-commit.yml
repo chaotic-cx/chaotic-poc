@@ -36,7 +36,7 @@ jobs:
           fi
     outputs:
       SCHEDULE_PARAMS: ${{ steps.parse.outputs.SCHEDULE_PARAMS }}
-  container-test-job:
+  schedule:
     runs-on: ubuntu-latest
     needs: parse
     container:
