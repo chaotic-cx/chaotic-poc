@@ -36,9 +36,10 @@ function parse_commit_messages() {
     for i in "${!COMMIT_MESSAGES[@]}"; do
         local message="${COMMIT_MESSAGES[$i]}"
         local commit="${COMMITS[$i]}"
-        local regex="[deploy ([a-z0-9-_ ]+)] ]"
+        local regex="\[deploy ([a-z0-9_ -]+)\]"
         if [[ "$message" =~ $regex ]]; then
-            local potential_packages=("${BASH_REMATCH[1]}")
+            local potential_packages
+            mapfile -t potential_packages <<< "${BASH_REMATCH[1]}"
             for package in "${potential_packages[@]}"; do
                 case "$package" in
                     all)
