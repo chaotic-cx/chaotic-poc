@@ -1,6 +1,5 @@
 #!/bin/bash
 set -e -o pipefail
-set -x
 
 # This script is used to determine which packages to build based on the recent commits and run necessary checks
 
