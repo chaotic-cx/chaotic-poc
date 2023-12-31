@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -e -o pipefail
+set -euo pipefail
+set -x
 
 # This script is triggered by a scheduled pipeline
 
@@ -38,8 +39,8 @@ function package_changed() {
 # $1: VARIABLES
 # $2: git URL
 function update_via_git() {
-    local -n VARIABLES=${1:-VARIABLES}
-    local pkgbase="${VARIABLES[PKGBASE]}"
+    local -n VARIABLES_VIA_GIT=${1:-VARIABLES}
+    local pkgbase="${VARIABLES_VIA_GIT[PKGBASE]}"
 
     git clone --depth=1 "$2" "$TMPDIR/aur-pulls/$pkgbase"
 
@@ -56,26 +57,26 @@ function update_via_git() {
 # $1: VARIABLES
 # $2: new timestamp
 function update_aur_timestamp() {
-    local -n VARIABLES=${1:-VARIABLES}
+    local -n VARIABLES_AUR_TIMESTAMP=${1:-VARIABLES}
     local new_timestamp="$2"
 
     if [ "$new_timestamp" != "0" ]; then
-        VARIABLES[CI_PKGBUILD_TIMESTAMP]="$new_timestamp"
+        VARIABLES_AUR_TIMESTAMP[CI_PKGBUILD_TIMESTAMP]="$new_timestamp"
     fi
 }
 
 function update_pkgbuild() {
-    local -n VARIABLES=${1:-VARIABLES}
-    local pkgbase="${VARIABLES[PKGBASE]}"
-    if ! [ -v "VARIABLES[CI_PKGBUILD_SOURCE]" ]; then
+    local -n VARIABLES_UPDATE_PKGBUILD=${1:-VARIABLES}
+    local pkgbase="${VARIABLES_UPDATE_PKGBUILD[PKGBASE]}"
+    if ! [ -v "VARIABLES_UPDATE_PKGBUILD[CI_PKGBUILD_SOURCE]" ]; then
         return 0
     fi
 
-    local PKGBUILD_SOURCE="${VARIABLES[CI_PKGBUILD_SOURCE]}"
+    local PKGBUILD_SOURCE="${VARIABLES_UPDATE_PKGBUILD[CI_PKGBUILD_SOURCE]}"
 
     # Check if format is aur:pkgbase
     if [[ "$PKGBUILD_SOURCE" != aur:* ]]; then
-        update_via_git VARIABLES "$PKGBUILD_SOURCE"
+        update_via_git VARIABLES_UPDATE_PKGBUILD "$PKGBUILD_SOURCE"
     else
         local pkgbase="${PKGBUILD_SOURCE#aur:}"
         local git_url="https://aur.archlinux.org/${pkgbase}.git"
@@ -84,15 +85,15 @@ function update_pkgbuild() {
         NEW_TIMESTAMP="$(curl -s "https://aur.archlinux.org/rpc/v5/info?arg[]=$pkgbase" | jq -r '.results[0].LastModified' || echo "0")"
 
         # Check if CI_PKGBUILD_TIMESTAMP is set
-        if [ -v "VARIABLES[CI_PKGBUILD_TIMESTAMP]" ]; then
-            local PKGBUILD_TIMESTAMP="${VARIABLES[CI_PKGBUILD_TIMESTAMP]}"
+        if [ -v "VARIABLES_UPDATE_PKGBUILD[CI_PKGBUILD_TIMESTAMP]" ]; then
+            local PKGBUILD_TIMESTAMP="${VARIABLES_UPDATE_PKGBUILD[CI_PKGBUILD_TIMESTAMP]}"
             if [ "$PKGBUILD_TIMESTAMP" != "$NEW_TIMESTAMP" ]; then
-                update_via_git VARIABLES "$git_url"
-                update_aur_timestamp VARIABLES "$NEW_TIMESTAMP"
+                update_via_git VARIABLES_UPDATE_PKGBUILD "$git_url"
+                update_aur_timestamp VARIABLES_UPDATE_PKGBUILD "$NEW_TIMESTAMP"
             fi
         else
-            update_via_git VARIABLES "$git_url"
-            update_aur_timestamp VARIABLES "$NEW_TIMESTAMP"
+            update_via_git VARIABLES_UPDATE_PKGBUILD "$git_url"
+            update_aur_timestamp VARIABLES_UPDATE_PKGBUILD "$NEW_TIMESTAMP"
         fi
     fi
 }
@@ -100,17 +101,17 @@ function update_pkgbuild() {
 # $1: VARIABLES
 # $2: new commit
 function update_vcs_commit() {
-    local -n VARIABLES=${1:-VARIABLES}
+    local -n VARIABLES_VCS_COMMIT=${1:-VARIABLES}
     local new_commit="$2"
 
-    if [ "$new_commit" != "0" ]; then
-        VARIABLES[CI_GIT_COMMIT]="$new_commit"
+    if [ -n "$new_commit" ]; then
+        VARIABLES_VCS_COMMIT[CI_GIT_COMMIT]="$new_commit"
     fi
 }
 
 function update_vcs() {
-    local -n VARIABLES=${1:-VARIABLES}
-    local pkgbase="${VARIABLES[PKGBASE]}"
+    local -n VARIABLES_UPDATE_VCS=${1:-VARIABLES}
+    local pkgbase="${VARIABLES_UPDATE_VCS[PKGBASE]}"
 
     # Check if pkgbase ends with -git
     if [[ "$pkgbase" != *-git ]]; then
@@ -131,17 +132,17 @@ function update_vcs() {
     fi
 
     local _NEWEST_COMMIT
-    _NEWEST_COMMIT="$(git ls-remote "$_SOURCE" | grep -m1 -oP '\w+(?=\tHEAD)' || echo "0")"
+    _NEWEST_COMMIT="$(git ls-remote "$source" | grep -m1 -oP '\w+(?=\tHEAD)' || true)"
 
     # Check if CI_GIT_COMMIT is set
-    if [ -v "VARIABLES[CI_GIT_COMMIT]" ]; then
-        local CI_GIT_COMMIT="${VARIABLES[CI_GIT_COMMIT]}"
+    if [ -v "VARIABLES_UPDATE_VCS[CI_GIT_COMMIT]" ]; then
+        local CI_GIT_COMMIT="${VARIABLES_UPDATE_VCS[CI_GIT_COMMIT]}"
         if [ "$CI_GIT_COMMIT" != "$_NEWEST_COMMIT" ]; then
-            update_vcs_commit "$_NEWEST_COMMIT"
+            update_vcs_commit VARIABLES_UPDATE_VCS "$_NEWEST_COMMIT"
             MODIFIED_PACKAGES+=("$pkgbase")
         fi
     else
-        update_vcs_commit "$_NEWEST_COMMIT"
+        update_vcs_commit VARIABLES_UPDATE_VCS "$_NEWEST_COMMIT"
         MODIFIED_PACKAGES+=("$pkgbase")
     fi
 }
@@ -154,16 +155,21 @@ for package in "${PACKAGES[@]}"; do
     if UTIL_READ_MANAGED_PACAKGE "$package" VARIABLES; then
         update_pkgbuild VARIABLES
         update_vcs VARIABLES
+        UTIL_PRUNE_UNKNOWN_VARIABLES VARIABLES
         UTIL_WRITE_VARIABLES_TO_FILE "$package/.CI_CONFIG" VARIABLES
     fi
 done
 
 if ! git diff --exit-code --quiet; then
+    git config --global user.name "$GIT_AUTHOR_NAME"
+    git config --global user.email "$GIT_AUTHOR_EMAIL"
     git add .
     git commit -m "chore(packages): update packages [skip ci]"
 fi
 
-"$(dirname "$(realpath "$0")")"/schedule-packages.sh "${MODIFIED_PACKAGES[*]}"
+if [ ${#MODIFIED_PACKAGES[@]} -ne 0 ]; then
+    "$(dirname "$(realpath "$0")")"/schedule-packages.sh "${MODIFIED_PACKAGES[*]}"
+fi
 
 git tag -f scheduled
-git push --atomic "$REPO_URL" HEAD:main refs/tags/scheduled
+git push --atomic origin HEAD:main +refs/tags/scheduled
