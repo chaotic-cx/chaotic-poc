@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+
+KNOWN_VARIABLE_LIST=(CI_PKGBUILD_SOURCE CI_GIT_COMMIT CI_PKGBUILD_TIMESTAMP)
+
+# Get a list of all the packages in the repo
+function UTIL_GET_PACKAGES() {
+    local -n nameref_array=${1:-PACKAGES}
+    mapfile -t nameref_array < <(find . -mindepth 1 -type d -not -path '*/.*' -printf '%P\n')
+}
+
+function UTIL_PRUNE_UNKNOWN_VARIABLES() {
+    local -n nameref_assoc_array=${1:-VARIABLES}
+    for key in "${!nameref_assoc_array[@]}"; do
+        if [[ ! " ${KNOWN_VARIABLE_LIST[@]} " =~ " ${key} " ]]; then
+            unset nameref_assoc_array[$key]
+        fi
+    done
+}
+
+function UTIL_READ_VARIABLES_FROM_FILE() {
+    local file=$1
+    local -n nameref_assoc_array=${2:-VARIABLES}
+    echo $file
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [[ "$line" =~ ^[[:space:]]*([a-zA-Z0-9_]+)[[:space:]]*=[[:space:]]*(.*)[[:space:]]*$ ]]; then
+            nameref_assoc_array["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
+        fi
+    done < "$file"
+}
+
+function UTIL_WRITE_VARIABLES_TO_FILE() {
+    local file=$1
+    local -n nameref_assoc_array=${2:-VARIABLES}
+    for key in "${!nameref_assoc_array[@]}"; do
+        echo "$key=${nameref_assoc_array[$key]}" >> "$file"
+    done
+}
+
+function UTIL_READ_MANAGED_PACAKGE() {
+    local target_file="./${1}/.CI_CONFIG"
+    if [ -f "$target_file" ]; then
+        local -n nameref_assoc_array=${2:-VARIABLES}
+        UTIL_READ_VARIABLES_FROM_FILE "$target_file" nameref_assoc_array
+
+        # Check if any variable at all was read
+        if [ ${#nameref_assoc_array[@]} -ne 0 ]; then
+            nameref_assoc_array[PKGBASE]="$1"
+            UTIL_PRUNE_UNKNOWN_VARIABLES nameref_assoc_array
+            return 0
+        fi
+    fi
+    return 1
+}

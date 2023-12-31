@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -euo pipefail
 
@@ -6,9 +6,12 @@ set -euo pipefail
 
 mapfile -t PACKAGES <<< "$@"
 
+source .ci/util.shlib
+
 if [ -v "PACKAGES[0]" ] && [ "${PACKAGES[0]}" == "all" ]; then
     echo "Rebuild of all packages requested."
-    mapfile -t PACKAGES < <(find . -mindepth 1 -type d -not -path '*/.*' -printf '%P\n')
+    local PACKAGES
+    UTIL_GET_PACKAGES PACKAGES
 fi
 
 # Check if the array of packages is empty

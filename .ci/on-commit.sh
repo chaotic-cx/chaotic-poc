@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e -o pipefail
 
 # This script is used to determine which packages to build based on the recent commits and run necessary checks
