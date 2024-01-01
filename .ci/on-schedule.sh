@@ -49,7 +49,7 @@ function update_via_git() {
     
     if package_changed "$TMPDIR/aur-pulls/$pkgbase" "$pkgbase"; then
         # Rsync: delete files in the destination that are not in the source. Exclude deleting .CI_CONFIG, exclude copying .git
-        rsync -a --delete --exclude=.CI_CONFIG --exclude=.git "$TMPDIR/aur-pulls/$pkgbase/" "$pkgbase/"
+        rsync -a --delete --exclude=.CI_CONFIG --exclude=.git --exclude=.gitignore "$TMPDIR/aur-pulls/$pkgbase/" "$pkgbase/"
         MODIFIED_PACKAGES+=("$pkgbase")
     fi
 }
