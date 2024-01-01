@@ -17,17 +17,17 @@ sha256sums=('SKIP')
 
 pkgver() {
 	cd $_pkgname/alacritty
-	echo "$(grep '^version =' Cargo.toml|head -n1|cut -d\" -f2|cut -d\- -f1).$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"
+	echo "$(grep '^version =' Cargo.toml | head -n1 | cut -d\" -f2 | cut -d\- -f1).$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"
 }
 
-build(){
-  cd "$_pkgname"
-  env CARGO_INCREMENTAL=0 cargo build --release --locked
+build() {
+	cd "$_pkgname"
+	env CARGO_INCREMENTAL=0 cargo build --release --locked
 }
 
-check(){
-  cd "$_pkgname"
-  env CARGO_INCREMENTAL=0 cargo test --release
+check() {
+	cd "$_pkgname"
+	env CARGO_INCREMENTAL=0 cargo test --release
 }
 
 package_alacritty-git() {
@@ -36,10 +36,10 @@ package_alacritty-git() {
 	desktop-file-install -m 644 --dir "$pkgdir/usr/share/applications/" "$srcdir/$_pkgname/extra/linux/Alacritty.desktop"
 
 	mkdir -p "$pkgdir/usr/share/man/man1" "$pkgdir/usr/share/man/man5"
-	scdoc < extra/man/alacritty.1.scd | gzip -c | tee "$pkgdir/usr/share/man/man1/alacritty.1.gz" > /dev/null
-	scdoc < extra/man/alacritty.5.scd | gzip -c | tee "$pkgdir/usr/share/man/man5/alacritty.5.gz" > /dev/null
-	scdoc < extra/man/alacritty-msg.1.scd | gzip -c | tee "$pkgdir/usr/share/man/man1/alacritty-msg.1.gz" > /dev/null
-	scdoc < extra/man/alacritty-bindings.5.scd | gzip -c | tee "$pkgdir/usr/share/man/man5/alacritty-bindings.5.gz" > /dev/null
+	scdoc <extra/man/alacritty.1.scd | gzip -c | tee "$pkgdir/usr/share/man/man1/alacritty.1.gz" >/dev/null
+	scdoc <extra/man/alacritty.5.scd | gzip -c | tee "$pkgdir/usr/share/man/man5/alacritty.5.gz" >/dev/null
+	scdoc <extra/man/alacritty-msg.1.scd | gzip -c | tee "$pkgdir/usr/share/man/man1/alacritty-msg.1.gz" >/dev/null
+	scdoc <extra/man/alacritty-bindings.5.scd | gzip -c | tee "$pkgdir/usr/share/man/man5/alacritty-bindings.5.gz" >/dev/null
 
 	install -D -m755 "target/release/alacritty" "$pkgdir/usr/bin/alacritty"
 	install -D -m644 "extra/linux/org.alacritty.Alacritty.appdata.xml" "$pkgdir/usr/share/appdata/org.alacritty.Alacritty.appdata.xml"
