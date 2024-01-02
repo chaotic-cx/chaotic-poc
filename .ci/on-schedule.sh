@@ -15,14 +15,37 @@ source .ci/util.shlib
 TMPDIR="${TMPDIR:-/tmp}"
 
 PACKAGES=()
+declare -A AUR_TIMESTAMPS
 MODIFIED_PACKAGES=()
 UTIL_GET_PACKAGES PACKAGES
+
+# Loop through all packages to do optimized aur RPC calls
+# $1 = Output associative array
+function collect_aur_timestamps() {
+    local -n collect_aur_timestamps_output=$1
+    local AUR_PACKAGES=()
+
+    for package in "${PACKAGES[@]}"; do
+        declare -A VARIABLES
+        if UTIL_READ_MANAGED_PACAKGE "$package" VARIABLES; then
+            if [ -v "VARIABLES[CI_PKGBUILD_SOURCE]" ]; then
+                local PKGBUILD_SOURCE="${VARIABLES[CI_PKGBUILD_SOURCE]}"
+                if [[ "$PKGBUILD_SOURCE" == aur ]]; then
+                    AUR_PACKAGES+=("$package")
+                fi
+            fi
+        fi
+    done
+
+    # Get all timestamps from AUR
+    UTIL_FETCH_AUR_TIMESTAMPS collect_aur_timestamps_output "${AUR_PACKAGES[*]}"
+}
 
 # $1: dir1
 # $2: dir2
 function package_changed() {
     # Check if the package has changed
-    # NOTE: Pay attention! Okay, *snaps fingers*. We don't care if anything but the PKGBUILD or .SRCINFO has changed.
+    # NOTE: We don't care if anything but the PKGBUILD or .SRCINFO has changed.
     # Any properly built PKGBUILD will use hashes, which will change
     if diff -q "$1/PKGBUILD" "$2/PKGBUILD" >/dev/null; then
         if [ ! -f "$1/.SRCINFO" ] && [ ! -f "$2/.SRCINFO" ]; then
@@ -54,17 +77,6 @@ function update_via_git() {
     fi
 }
 
-# $1: VARIABLES
-# $2: new timestamp
-function update_aur_timestamp() {
-    local -n VARIABLES_AUR_TIMESTAMP=${1:-VARIABLES}
-    local new_timestamp="$2"
-
-    if [ "$new_timestamp" != "0" ]; then
-        VARIABLES_AUR_TIMESTAMP[CI_PKGBUILD_TIMESTAMP]="$new_timestamp"
-    fi
-}
-
 function update_pkgbuild() {
     local -n VARIABLES_UPDATE_PKGBUILD=${1:-VARIABLES}
     local pkgbase="${VARIABLES_UPDATE_PKGBUILD[PKGBASE]}"
@@ -74,38 +86,30 @@ function update_pkgbuild() {
 
     local PKGBUILD_SOURCE="${VARIABLES_UPDATE_PKGBUILD[CI_PKGBUILD_SOURCE]}"
 
-    # Check if format is aur:pkgbase
-    if [[ "$PKGBUILD_SOURCE" != aur:* ]]; then
+    # Check if the package is from the AUR
+    if [[ "$PKGBUILD_SOURCE" != aur ]]; then
         update_via_git VARIABLES_UPDATE_PKGBUILD "$PKGBUILD_SOURCE"
     else
-        local pkgbase="${PKGBUILD_SOURCE#aur:}"
         local git_url="https://aur.archlinux.org/${pkgbase}.git"
 
-        local NEW_TIMESTAMP
-        NEW_TIMESTAMP="$(curl -s "https://aur.archlinux.org/rpc/v5/info?arg[]=$pkgbase" | jq -r '.results[0].LastModified' || echo "0")"
+        # Fetch from optimized AUR RPC call
+        if ! [ -v "AUR_TIMESTAMPS[$pkgbase]" ]; then
+            echo "Warning: Could not find $pkgbase in cached AUR timestamps." >&2
+            return 0
+        fi
+        local NEW_TIMESTAMP="${AUR_TIMESTAMPS[$pkgbase]}"
 
         # Check if CI_PKGBUILD_TIMESTAMP is set
         if [ -v "VARIABLES_UPDATE_PKGBUILD[CI_PKGBUILD_TIMESTAMP]" ]; then
             local PKGBUILD_TIMESTAMP="${VARIABLES_UPDATE_PKGBUILD[CI_PKGBUILD_TIMESTAMP]}"
             if [ "$PKGBUILD_TIMESTAMP" != "$NEW_TIMESTAMP" ]; then
                 update_via_git VARIABLES_UPDATE_PKGBUILD "$git_url"
-                update_aur_timestamp VARIABLES_UPDATE_PKGBUILD "$NEW_TIMESTAMP"
+                UTIL_UPDATE_AUR_TIMESTAMP VARIABLES_UPDATE_PKGBUILD "$NEW_TIMESTAMP"
             fi
         else
             update_via_git VARIABLES_UPDATE_PKGBUILD "$git_url"
-            update_aur_timestamp VARIABLES_UPDATE_PKGBUILD "$NEW_TIMESTAMP"
+            UTIL_UPDATE_AUR_TIMESTAMP VARIABLES_UPDATE_PKGBUILD "$NEW_TIMESTAMP"
         fi
-    fi
-}
-
-# $1: VARIABLES
-# $2: new commit
-function update_vcs_commit() {
-    local -n VARIABLES_VCS_COMMIT=${1:-VARIABLES}
-    local new_commit="$2"
-
-    if [ -n "$new_commit" ]; then
-        VARIABLES_VCS_COMMIT[CI_GIT_COMMIT]="$new_commit"
     fi
 }
 
@@ -118,38 +122,31 @@ function update_vcs() {
         return 0
     fi
 
-    # Check if .SRCINFO exists. We can't work with a -git package without it
-    if ! [ -f "$pkgbase/.SRCINFO" ]; then
-        return 0
-    fi
-
-    # Parse the first source from the .SRCINFO file
-    local source
-    source=$(grep -m 1 -oP '\ssource\s=\s.*git\+\K.*$' "$pkgbase/.SRCINFO")
-
-    if [ -z "$source" ]; then
-        return 0
-    fi
-
     local _NEWEST_COMMIT
-    _NEWEST_COMMIT="$(git ls-remote "$source" | grep -m1 -oP '\w+(?=\tHEAD)' || true)"
+    if ! _NEWEST_COMMIT="$(UTIL_FETCH_VCS_COMMIT VARIABLES_UPDATE_VCS)"; then
+        echo "Warning: Could not fetch latest commit for $pkgbase via heuristic." >&2
+        return 0
+    fi
 
     # Check if CI_GIT_COMMIT is set
     if [ -v "VARIABLES_UPDATE_VCS[CI_GIT_COMMIT]" ]; then
         local CI_GIT_COMMIT="${VARIABLES_UPDATE_VCS[CI_GIT_COMMIT]}"
         if [ "$CI_GIT_COMMIT" != "$_NEWEST_COMMIT" ]; then
-            update_vcs_commit VARIABLES_UPDATE_VCS "$_NEWEST_COMMIT"
+            UTIL_UPDATE_VCS_COMMIT VARIABLES_UPDATE_VCS "$_NEWEST_COMMIT"
             MODIFIED_PACKAGES+=("$pkgbase")
         fi
     else
-        update_vcs_commit VARIABLES_UPDATE_VCS "$_NEWEST_COMMIT"
+        UTIL_UPDATE_VCS_COMMIT VARIABLES_UPDATE_VCS "$_NEWEST_COMMIT"
         MODIFIED_PACKAGES+=("$pkgbase")
     fi
 }
 
 mkdir "$TMPDIR/aur-pulls"
 
-# Loop through all packages
+# Collect last modified timestamps from AUR in an efficient way
+collect_aur_timestamps AUR_TIMESTAMPS
+
+# Loop through all packages to check if they need to be updated
 for package in "${PACKAGES[@]}"; do
     declare -A VARIABLES
     if UTIL_READ_MANAGED_PACAKGE "$package" VARIABLES; then
@@ -160,16 +157,21 @@ for package in "${PACKAGES[@]}"; do
     fi
 done
 
+COMMIT=false
+
 if ! git diff --exit-code --quiet; then
     git config --global user.name "$GIT_AUTHOR_NAME"
     git config --global user.email "$GIT_AUTHOR_EMAIL"
     git add .
     git commit -m "chore(packages): update packages [skip ci]"
+    COMMIT=true
 fi
 
 if [ ${#MODIFIED_PACKAGES[@]} -ne 0 ]; then
     "$(dirname "$(realpath "$0")")"/schedule-packages.sh "${MODIFIED_PACKAGES[*]}"
 fi
 
-git tag -f scheduled
-git push --atomic origin HEAD:main +refs/tags/scheduled
+if [ "$COMMIT" = true ]; then
+    git tag -f scheduled
+    git push --atomic origin HEAD:main +refs/tags/scheduled
+fi

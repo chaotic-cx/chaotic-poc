@@ -54,3 +54,101 @@ function UTIL_READ_MANAGED_PACAKGE() {
     fi
     return 1
 }
+
+# $1: VARIABLES
+function UTIL_FETCH_VCS_COMMIT() {
+    local -n VARIABLES_FETCH_VCS_COMMIT=${1:-VARIABLES}
+    local pkgbase="${VARIABLES_FETCH_VCS_COMMIT[PKGBASE]}"
+
+    # Check if .SRCINFO exists. We can't work with a -git package without it
+    if ! [ -f "$pkgbase/.SRCINFO" ]; then
+        return 1
+    fi
+
+    # Parse the first source from the .SRCINFO file
+    local source
+    source=$(grep -m 1 -oP '\ssource\s=\s.*git\+\K.*$' "$pkgbase/.SRCINFO")
+
+    if [ -z "$source" ]; then
+        return 1
+    fi
+
+    local _NEWEST_COMMIT
+    if ! _NEWEST_COMMIT="$(git ls-remote "$source" | grep -m1 -oP '\w+(?=\tHEAD)')"; then
+        return 1
+    fi
+    if [ -z "$_NEWEST_COMMIT" ]; then
+        return 1
+    fi
+
+    printf "%s" "$_NEWEST_COMMIT"
+}
+
+# $1: VARIABLES
+# $2: new commit
+function UTIL_UPDATE_VCS_COMMIT() {
+    local -n VARIABLES_UPDATE_VCS_COMMIT=${1:-VARIABLES}
+    local new_commit="$2"
+
+    if [ -n "$new_commit" ]; then
+        VARIABLES_UPDATE_VCS_COMMIT[CI_GIT_COMMIT]="$new_commit"
+    fi
+}
+
+# $1: Output associative array
+# $2: array of pkgbases on AUR
+function UTIL_FETCH_AUR_TIMESTAMPS() {
+    local -n OUTPUT_ASSOC_ARRAY=$1
+    local pkgbases=()
+
+    read -a pkgbases <<< "$2"
+
+    # Check size of array
+    if [ ${#pkgbases[@]} -eq 0 ]; then
+        return 0
+    fi
+    
+    local API_URL="https://aur.archlinux.org/rpc/v5/info"
+    local first=1
+
+    # Loop through $2 but via index numbers. If index != 0, append &arg[]= to the URL
+    for i in "${!pkgbases[@]}"; do
+        if [ "$first" -eq 1 ]; then
+            API_URL+="?arg[]=${pkgbases[$i]}"
+            first=0
+        else
+            API_URL+="&arg[]=${pkgbases[$i]}"
+        fi
+
+        # Every 150 packages or at the end of the array, fetch the timestamps
+        if [ $((i % 150)) -eq 149 ] || [ "$i" -eq "$((${#pkgbases[@]} - 1))" ]; then
+            local response
+            echo "Info: Fetching AUR timestamps for $((i + 1))/${#pkgbases[@]} packages..."
+            echo "Info: $API_URL"
+            if response="$(curl -s "$API_URL")"; then
+                local -a timestamps
+                mapfile -t timestamps <<< "$(echo "$response" | jq -r '.results[].LastModified')"
+                local -a pkgbases
+                mapfile -t pkgbases <<< "$(echo "$response" | jq -r '.results[].PackageBase')"
+
+                # Loop through timestamps and pkgbases and add them to the associative array
+                for j in "${!timestamps[@]}"; do
+                    OUTPUT_ASSOC_ARRAY["${pkgbases[$j]}"]="${timestamps[$j]}"
+                done
+            fi
+            API_URL="https://aur.archlinux.org/rpc/v5/info"
+            first=1
+        fi
+    done
+}
+
+# $1: VARIABLES
+# $2: new timestamp
+function UTIL_UPDATE_AUR_TIMESTAMP() {
+    local -n VARIABLES_AUR_TIMESTAMP=${1:-VARIABLES}
+    local new_timestamp="$2"
+
+    if [ "$new_timestamp" != "0" ]; then
+        VARIABLES_AUR_TIMESTAMP[CI_PKGBUILD_TIMESTAMP]="$new_timestamp"
+    fi
+}

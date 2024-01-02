@@ -11,6 +11,7 @@ env:
     REDIS_SSH_PORT: 400
     REDIS_SSH_USER: package-deployer
     REPO_NAME: chaotic-aur
+    CI_HUMAN_REVIEW: false
 
 # Controls when the workflow will run
 on:
