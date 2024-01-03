@@ -129,6 +129,11 @@ function update_vcs() {
         return 0
     fi
 
+    if [ -z "$_NEWEST_COMMIT" ]; then
+        unset VARIABLES_UPDATE_VCS[CI_GIT_COMMIT]
+        return 0
+    fi
+
     # Check if CI_GIT_COMMIT is set
     if [ -v "VARIABLES_UPDATE_VCS[CI_GIT_COMMIT]" ]; then
         local CI_GIT_COMMIT="${VARIABLES_UPDATE_VCS[CI_GIT_COMMIT]}"

@@ -55,6 +55,22 @@ function UTIL_READ_MANAGED_PACAKGE() {
     return 1
 }
 
+# Extract both the normal url and the fragment
+UTIL_GET_URI_PARTS() {
+	local netfile=$1
+
+	local fragment=${netfile#*#}
+	if [[ "$fragment" = "$netfile" ]]; then
+		fragment=""
+	fi
+	fragment=${fragment%\?*}
+
+    local url="${netfile%%#*}"
+    url="${url%%\?*}"
+
+	printf "%s\n%s" "$url" "$fragment"
+}
+
 # $1: VARIABLES
 function UTIL_FETCH_VCS_COMMIT() {
     local -n VARIABLES_FETCH_VCS_COMMIT=${1:-VARIABLES}
@@ -66,15 +82,35 @@ function UTIL_FETCH_VCS_COMMIT() {
     fi
 
     # Parse the first source from the .SRCINFO file
-    local source
-    source=$(grep -m 1 -oP '\ssource\s=\s.*git\+\K.*$' "$pkgbase/.SRCINFO")
+    # Example output: https://github.com/LinusDierheimer/fastfetch.git#branch=dev
+    local source fragment ref
+    source=$(grep -m 1 -oP '\ssource\s=\s.*git\+\K.*$' "$pkgbase/.SRCINFO" || true)
+    ref=HEAD
 
     if [ -z "$source" ]; then
-        return 1
+        # Unable to find source in .SRCINFO
+        # This does not mean that we are at fault
+        # So we return 0 to indicate that we should remove the VCS indication from the package
+        return 0
+    fi
+
+    IFS=$'\n' read -rd '' source fragment <<< "$(UTIL_GET_URI_PARTS "$source")"
+
+    if [ -n "$fragment" ]; then
+        local type
+        type="${fragment%%=*}"
+        # This heuristic is used to check if the fragment is a branch.
+        # If the fragment is not a branch, it must be a commit hash or a tag.
+        # In those cases, we don't need to update VCS, because we assume
+        # the package maintainer will update the PKGBUILD accordingly.
+        if [ "$type" != "branch" ]; then
+            return 0
+        fi
+        ref="${fragment##*=}"
     fi
 
     local _NEWEST_COMMIT
-    if ! _NEWEST_COMMIT="$(git ls-remote "$source" | grep -m1 -oP '\w+(?=\tHEAD)')"; then
+    if ! _NEWEST_COMMIT="$(git ls-remote "$source" "$ref" | grep -m1 -oP '\w+(?=\t\w)')"; then
         return 1
     fi
     if [ -z "$_NEWEST_COMMIT" ]; then
