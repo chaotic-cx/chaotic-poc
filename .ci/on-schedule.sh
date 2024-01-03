@@ -26,7 +26,8 @@ function collect_aur_timestamps() {
     local AUR_PACKAGES=()
 
     for package in "${PACKAGES[@]}"; do
-        declare -A VARIABLES
+        unset VARIABLES
+        declare -gA VARIABLES
         if UTIL_READ_MANAGED_PACAKGE "$package" VARIABLES; then
             if [ -v "VARIABLES[CI_PKGBUILD_SOURCE]" ]; then
                 local PKGBUILD_SOURCE="${VARIABLES[CI_PKGBUILD_SOURCE]}"
@@ -117,8 +118,8 @@ function update_vcs() {
     local -n VARIABLES_UPDATE_VCS=${1:-VARIABLES}
     local pkgbase="${VARIABLES_UPDATE_VCS[PKGBASE]}"
 
-    # Check if pkgbase ends with -git
-    if [[ "$pkgbase" != *-git ]]; then
+    # Check if pkgbase ends with -git or if CI_GIT_COMMIT is set
+    if [[ "$pkgbase" != *-git ]] && [ ! -v "VARIABLES_UPDATE_VCS[CI_GIT_COMMIT]" ]; then
         return 0
     fi
 
@@ -141,13 +142,14 @@ function update_vcs() {
     fi
 }
 
-mkdir "$TMPDIR/aur-pulls"
-
 # Collect last modified timestamps from AUR in an efficient way
 collect_aur_timestamps AUR_TIMESTAMPS
 
+mkdir "$TMPDIR/aur-pulls"
+
 # Loop through all packages to check if they need to be updated
 for package in "${PACKAGES[@]}"; do
+    unset VARIABLES
     declare -A VARIABLES
     if UTIL_READ_MANAGED_PACAKGE "$package" VARIABLES; then
         update_pkgbuild VARIABLES

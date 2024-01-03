@@ -16,7 +16,7 @@ on-commit:
   stage: process
   image: alpine:latest
   script:
-    - apk add --no-cache --upgrade git bash findutils grep
+    - apk add --no-cache --upgrade git bash findutils grep curl jq shfmt rsync
     - git remote set-url origin $REPO_URL
     - git fetch --tags
     - .ci/on-commit.sh
@@ -32,7 +32,7 @@ on-schedule:
   stage: process
   image: alpine:latest
   script:
-    - apk add --no-cache --upgrade git bash findutils grep
+    - apk add --no-cache --upgrade git bash findutils grep curl jq shfmt rsync
     - git remote set-url origin $REPO_URL
     - git fetch --tags
     - .ci/on-schedule.sh
