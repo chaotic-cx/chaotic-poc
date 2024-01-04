@@ -4,8 +4,8 @@ KNOWN_VARIABLE_LIST=(CI_PKGBUILD_SOURCE CI_GIT_COMMIT CI_PKGBUILD_TIMESTAMP)
 
 # Get a list of all the packages in the repo
 function UTIL_GET_PACKAGES() {
-    local -n nameref_array=${1:-PACKAGES}
-    mapfile -t nameref_array < <(find . -mindepth 1 -type d -not -path '*/.*' -printf '%P\n')
+    local -n GET_PACKAGES_ARRAY=${1:-PACKAGES}
+    mapfile -t GET_PACKAGES_ARRAY < <(find . -mindepth 1 -type d -not -path '*/.*' -printf '%P\n')
 }
 
 function UTIL_PRUNE_UNKNOWN_VARIABLES() {
@@ -35,6 +35,21 @@ function UTIL_WRITE_VARIABLES_TO_FILE() {
     > "$file"
 
     for key in "${!WRITE_ASSOC_ARRAY[@]}"; do
+        echo "$key=${WRITE_ASSOC_ARRAY[$key]}" >> "$file"
+    done
+}
+
+function UTIL_WRITE_KNOWN_VARIABLES_TO_FILE() {
+    local file=$1
+    local -n WRITE_ASSOC_ARRAY=${2:-VARIABLES}
+
+    # Clear the file before writing variables
+    > "$file"
+
+    for key in "${!WRITE_ASSOC_ARRAY[@]}"; do
+        if [[ ! " ${KNOWN_VARIABLE_LIST[*]} " == *" ${key} "* ]]; then
+            continue;
+        fi
         echo "$key=${WRITE_ASSOC_ARRAY[$key]}" >> "$file"
     done
 }
@@ -162,14 +177,14 @@ function UTIL_FETCH_AUR_TIMESTAMPS() {
             echo "Info: Fetching AUR timestamps for $((i + 1))/${#pkgbases[@]} packages..."
             echo "Info: $API_URL"
             if response="$(curl -s "$API_URL")"; then
-                local -a timestamps
-                mapfile -t timestamps <<< "$(echo "$response" | jq -r '.results[].LastModified')"
-                local -a pkgbases
-                mapfile -t pkgbases <<< "$(echo "$response" | jq -r '.results[].PackageBase')"
+                local -a res_timestamps
+                mapfile -t res_timestamps <<< "$(echo "$response" | jq -r '.results[].LastModified')"
+                local -a res_pkgbases
+                mapfile -t res_pkgbases <<< "$(echo "$response" | jq -r '.results[].PackageBase')"
 
                 # Loop through timestamps and pkgbases and add them to the associative array
-                for j in "${!timestamps[@]}"; do
-                    OUTPUT_ASSOC_ARRAY["${pkgbases[$j]}"]="${timestamps[$j]}"
+                for j in "${!res_timestamps[@]}"; do
+                    OUTPUT_ASSOC_ARRAY["${res_pkgbases[$j]}"]="${res_timestamps[$j]}"
                 done
             fi
             API_URL="https://aur.archlinux.org/rpc/v5/info"

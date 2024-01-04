@@ -6,6 +6,7 @@ pkgrel=1
 pkgdesc="Like neofetch, but much faster because written in c"
 arch=("x86_64" "i686" "pentium4" "armv5" "armv6h" "armv7h" "aarch64" "riscv64")
 url="https://github.com/LinusDierheimer/fastfetch"
+echo test!
 license=("MIT")
 
 depends=(

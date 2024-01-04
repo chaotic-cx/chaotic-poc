@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-set -e -o pipefail
+set -euo pipefail
 
 # This script is used to determine which packages to build based on the recent commits and run necessary checks
+declare -A PACKAGES
 
 function populate_commit_info() {
     COMMITS=()
@@ -97,7 +98,7 @@ parse_commit_messages
 parse_changed_files
 
 # Check if we have any packages to build
-if [ ${#PACKAGES[@]} -eq 0 ]; then
+if [ ! -v "PACKAGES" ] || [ ${#PACKAGES[@]} -eq 0 ]; then
     echo "No packages to build, exiting gracefully."
 else
     # Check if we have to build all packages

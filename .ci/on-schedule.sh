@@ -18,6 +18,10 @@ PACKAGES=()
 declare -A AUR_TIMESTAMPS
 MODIFIED_PACKAGES=()
 UTIL_GET_PACKAGES PACKAGES
+COMMIT=false
+
+git config --global user.name "$GIT_AUTHOR_NAME"
+git config --global user.email "$GIT_AUTHOR_EMAIL"
 
 # Loop through all packages to do optimized aur RPC calls
 # $1 = Output associative array
@@ -60,6 +64,31 @@ function package_changed() {
     return 0
 }
 
+# Check if the package has gotten major changes
+# Any change that is not a pkgver or pkgrel bump is considered a major change
+# $1: dir1
+# $2: dir2
+function package_major_change() {
+    local sdiff_output
+    if sdiff_output="$(sdiff -ds <(gawk -f .ci/awk/remove-checksum.awk "$1/PKGBUILD") <(gawk -f .ci/awk/remove-checksum.awk "$2/PKGBUILD"))"; then
+        return 1
+    fi
+
+    if [ $? -eq 2 ]; then
+        echo "Warning: sdiff failed" >&2
+        return 2
+    fi
+
+    if gawk -f .ci/awk/check-diff.awk <<< "$sdiff_output"; then
+        # Check the rest of the files in the folder for changes
+        # Excluding PKGBUILD .SRCINFO, .gitignore, .git .CI_CONFIG
+        if diff -q -x PKGBUILD -x .SRCINFO -x .gitignore -x .git -x .CI_CONFIG -r "$1" "$2" >/dev/null; then
+            return 1
+        fi
+    fi
+    return 0
+}
+
 # $1: VARIABLES
 # $2: git URL
 function update_via_git() {
@@ -72,9 +101,12 @@ function update_via_git() {
     shfmt -w "$TMPDIR/aur-pulls/$pkgbase/PKGBUILD"
     
     if package_changed "$TMPDIR/aur-pulls/$pkgbase" "$pkgbase"; then
+        if [ -v CI_HUMAN_REVIEW ] && [ "$CI_HUMAN_REVIEW" == "true" ] && package_major_change "$TMPDIR/aur-pulls/$pkgbase" "$pkgbase"; then
+            echo "Warning: Major change detected in $pkgbase."
+            VARIABLES_VIA_GIT[CI_REQUIRES_REVIEW]=true
+        fi
         # Rsync: delete files in the destination that are not in the source. Exclude deleting .CI_CONFIG, exclude copying .git
         rsync -a --delete --exclude=.CI_CONFIG --exclude=.git --exclude=.gitignore "$TMPDIR/aur-pulls/$pkgbase/" "$pkgbase/"
-        MODIFIED_PACKAGES+=("$pkgbase")
     fi
 }
 
@@ -139,11 +171,9 @@ function update_vcs() {
         local CI_GIT_COMMIT="${VARIABLES_UPDATE_VCS[CI_GIT_COMMIT]}"
         if [ "$CI_GIT_COMMIT" != "$_NEWEST_COMMIT" ]; then
             UTIL_UPDATE_VCS_COMMIT VARIABLES_UPDATE_VCS "$_NEWEST_COMMIT"
-            MODIFIED_PACKAGES+=("$pkgbase")
         fi
     else
         UTIL_UPDATE_VCS_COMMIT VARIABLES_UPDATE_VCS "$_NEWEST_COMMIT"
-        MODIFIED_PACKAGES+=("$pkgbase")
     fi
 }
 
@@ -159,20 +189,24 @@ for package in "${PACKAGES[@]}"; do
     if UTIL_READ_MANAGED_PACAKGE "$package" VARIABLES; then
         update_pkgbuild VARIABLES
         update_vcs VARIABLES
-        UTIL_PRUNE_UNKNOWN_VARIABLES VARIABLES
-        UTIL_WRITE_VARIABLES_TO_FILE "$package/.CI_CONFIG" VARIABLES
+        UTIL_WRITE_KNOWN_VARIABLES_TO_FILE "$package/.CI_CONFIG" VARIABLES
+
+        if ! git diff --exit-code --quiet; then
+            if [[ -v VARIABLES[CI_REQUIRES_REVIEW] ]] && [ "${VARIABLES[CI_REQUIRES_REVIEW]}" == "true" ]; then
+                "$(dirname "$(realpath "$0")")"/create-pr.sh "$package"
+            else
+                git add .
+                if [ "$COMMIT" == "false" ]; then
+                    COMMIT=true
+                    git commit -m "chore(packages): update packages [skip ci]"
+                else
+                    git commit --amend --no-edit
+                fi
+                MODIFIED_PACKAGES+=("$package")
+            fi
+        fi
     fi
 done
-
-COMMIT=false
-
-if ! git diff --exit-code --quiet; then
-    git config --global user.name "$GIT_AUTHOR_NAME"
-    git config --global user.email "$GIT_AUTHOR_EMAIL"
-    git add .
-    git commit -m "chore(packages): update packages [skip ci]"
-    COMMIT=true
-fi
 
 if [ ${#MODIFIED_PACKAGES[@]} -ne 0 ]; then
     "$(dirname "$(realpath "$0")")"/schedule-packages.sh "${MODIFIED_PACKAGES[*]}"
