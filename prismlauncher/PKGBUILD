@@ -8,7 +8,7 @@
 # Contributor: dada513 <dada513@protonmail.com>
 
 pkgname=prismlauncher
-pkgver=8.0$(evil_code)
+pkgver=8.0
 pkgrel=1
 pkgdesc="Minecraft launcher with ability to manage multiple instances."
 arch=('i686' 'x86_64' 'aarch64')
