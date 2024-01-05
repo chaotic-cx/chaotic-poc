@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
+set -x
 
 # This script parses the parameters passed to this script and outputs a list of package names to a file
 
@@ -25,4 +26,17 @@ for i in "${!PACKAGES[@]}"; do
     PACKAGES[i]="${BUILD_REPO}:${PACKAGES[$i]}"
 done
 
-echo "schedule --repo=$REPO_NAME ${PACKAGES[*]}" > .ci/schedule-params.txt
+EXTRA_PARAMS=()
+
+# Check if we have an access token set
+if [ -v ACCESS_TOKEN ]; then
+    # Check if running on gitlab
+    if [ -v GITLAB_CI ]; then
+        EXTRA_PARAMS+=("--commit")
+        EXTRA_PARAMS+=("${CI_COMMIT_SHA}:${CI_PIPELINE_ID}")
+    elif [ -v GITHUB_ACTIONS ]; then
+        echo "Warning: Pipeline updates are not supported on GitHub Actions yet."
+    fi
+fi
+
+echo "schedule ${EXTRA_PARAMS[*]} --repo=$REPO_NAME ${PACKAGES[*]}" > .ci/schedule-params.txt
