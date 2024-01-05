@@ -2,6 +2,7 @@ name: On Schedule
 
 permissions:
   contents: write
+  pull-requests: write
 
 env:
     BUILD_REPO: chaotic-aur
@@ -11,7 +12,8 @@ env:
     REDIS_SSH_PORT: 400
     REDIS_SSH_USER: package-deployer
     REPO_NAME: chaotic-aur
-    CI_HUMAN_REVIEW: false
+    CI_HUMAN_REVIEW: true
+    ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 # Controls when the workflow will run
 on:
