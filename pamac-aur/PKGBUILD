@@ -4,7 +4,7 @@
 ENABLE_FAKE_GNOME_SOFTWARE=0
 
 pkgname=pamac-aur
-pkgver=11.7.0
+pkgver=11.7.1
 pkgrel=1
 _pkgfixver=$pkgver
 _pkgfixvercli=11.6.0
@@ -41,7 +41,6 @@ _srcdir="pamac-$_commit"
 _srcdircli="pamac-cli-$_commitcli"
 
 prepare() {
-	echo hi
 	cd "${srcdir}/${_srcdir}"
 	# adjust version string
 	sed -i -e "s|\"$_pkgfixver\"|\"$pkgver-$pkgrel\"|g" src/version.vala
