@@ -5,13 +5,13 @@ set -x
 
 # This script parses the parameters passed to this script and outputs a list of package names to a file
 
+declare -a PACKAGES
 mapfile -t PACKAGES <<< "$@"
 
 source .ci/util.shlib
 
 if [ -v "PACKAGES[0]" ] && [ "${PACKAGES[0]}" == "all" ]; then
     echo "Rebuild of all packages requested."
-    local PACKAGES
     UTIL_GET_PACKAGES PACKAGES
 fi
 
@@ -21,22 +21,21 @@ if [ ${#PACKAGES[@]} -eq 0 ]; then
     exit 0
 fi
 
-# Prepend the source repo name to each package name
-for i in "${!PACKAGES[@]}"; do
-    PACKAGES[i]="${BUILD_REPO}:${PACKAGES[$i]}"
-done
+declare -a PARAMS
+PARAMS+=("schedule" "--repo=$REPO_NAME")
 
-EXTRA_PARAMS=()
-
-# Check if we have an access token set
-if [ -v ACCESS_TOKEN ]; then
-    # Check if running on gitlab
-    if [ -v GITLAB_CI ]; then
-        EXTRA_PARAMS+=("--commit")
-        EXTRA_PARAMS+=("${CI_COMMIT_SHA}:${CI_PIPELINE_ID}")
-    elif [ -v GITHUB_ACTIONS ]; then
-        echo "Warning: Pipeline updates are not supported on GitHub Actions yet."
-    fi
+# Check if running on gitlab
+if [ -v GITLAB_CI ]; then
+    PARAMS+=("--commit")
+    PARAMS+=("${CI_COMMIT_SHA}:${CI_PIPELINE_ID}")
+elif [ -v GITHUB_ACTIONS ]; then
+    echo "Warning: Pipeline updates are not supported on GitHub Actions yet."
 fi
 
-echo "schedule ${EXTRA_PARAMS[*]} --repo=$REPO_NAME ${PACKAGES[*]}" > .ci/schedule-params.txt
+# Prepend the source repo name to each package name and push to PARAMS
+for i in "${!PACKAGES[@]}"; do
+    PARAMS+=("${BUILD_REPO}:${PACKAGES[$i]}")
+done
+
+# Write the parameters to a file .ci/schedule-params.txt
+declare -p PARAMS > .ci/schedule-params.txt
