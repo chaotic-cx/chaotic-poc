@@ -46,7 +46,7 @@ function create_gitlab_pr() {
 	\"subscribed\" : false,
 	\"approvals_before_merge\": \"1\",
 	\"title\": \"chore($pkgbase): PKGBUILD modified [deploy $pkgbase]\",
-	\"description\": \"The recent update of this package requires human review!\",
+	\"description\": \"A recent update of this package requires human review! Please check whether any potentially dangerous changes were made.\",
 	\"labels\": \"ci,human-review,update\"
 	}"
 
@@ -96,7 +96,7 @@ function create_github_pr() {
 	\"base\": \"${target_branch}\",
 	\"maintainer_can_modify\": true,
 	\"title\": \"chore($pkgbase): PKGBUILD modified [deploy $pkgbase]\",
-	\"body\": \"The recent update of this package requires human review!\"
+	\"body\": \"A recent update of this package requires human review! Please check whether any potentially dangerous changes were made.\"
 	}"
 
 	# No MR found, let's create a new one
@@ -129,14 +129,14 @@ function manage_branch() {
 		if ! git diff --staged --exit-code --quiet || ! git merge-base --is-ancestor HEAD^ "origin/$target_branch"; then
 			# Not up to date
 			git reset --hard "origin/$target_branch"
-			git checkout stash -- .
-			git commit -m "chore($1): PKGBUILD modified [deploy $1]"
+			git checkout stash -- "$pkgbase"
+			git commit -m "chore($1): PKGBUILD modified [deploy $pkgbase]"
 		fi
 	else
 		# Branch does not exist, let's create it
 		git switch -C "$branch" "origin/$target_branch"
 		git checkout stash -- "$pkgbase"
-		git commit -m "chore($1): PKGBUILD modified [deploy $1]"
+		git commit -m "chore($1): PKGBUILD modified [deploy $pkgbase]"
 	fi
 	git stash drop
 }
