@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set -x
 
 # This script is triggered by a scheduled pipeline
 
@@ -16,6 +17,7 @@ TMPDIR="${TMPDIR:-/tmp}"
 PACKAGES=()
 declare -A AUR_TIMESTAMPS
 MODIFIED_PACKAGES=()
+DELETE_BRANCHES=()
 UTIL_GET_PACKAGES PACKAGES
 COMMIT=false
 
@@ -25,6 +27,7 @@ git config --global user.email "$GIT_AUTHOR_EMAIL"
 # Loop through all packages to do optimized aur RPC calls
 # $1 = Output associative array
 function collect_aur_timestamps() {
+    # shellcheck disable=SC2034
     local -n collect_aur_timestamps_output=$1
     local AUR_PACKAGES=()
 
@@ -80,8 +83,9 @@ function package_major_change() {
 
     if gawk -f .ci/awk/check-diff.awk <<< "$sdiff_output"; then
         # Check the rest of the files in the folder for changes
-        # Excluding PKGBUILD .SRCINFO, .gitignore, .git .CI_CONFIG
-        if diff -q -x PKGBUILD -x .SRCINFO -x .gitignore -x .git -x .CI_CONFIG -r "$1" "$2" >/dev/null; then
+        # Excluding PKGBUILD .SRCINFO, .gitignore, .git .CI
+        # shellcheck disable=SC2046
+        if diff -q $(UTIL_GET_EXCLUDE_LIST "-x" "PKGBUILD .SRCINFO") -r "$1" "$2" >/dev/null; then
             return 1
         fi
     fi
@@ -104,8 +108,9 @@ function update_via_git() {
             echo "Warning: Major change detected in $pkgbase."
             VARIABLES_VIA_GIT[CI_REQUIRES_REVIEW]=true
         fi
-        # Rsync: delete files in the destination that are not in the source. Exclude deleting .CI_CONFIG, exclude copying .git
-        rsync -a --delete --exclude=.CI_CONFIG --exclude=.git --exclude=.gitignore "$TMPDIR/aur-pulls/$pkgbase/" "$pkgbase/"
+        # Rsync: delete files in the destination that are not in the source. Exclude deleting .CI, exclude copying .git
+        # shellcheck disable=SC2046
+        rsync -a --delete $(UTIL_GET_EXCLUDE_LIST "--exclude") "$TMPDIR/aur-pulls/$pkgbase/" "$pkgbase/"
     fi
 }
 
@@ -161,7 +166,7 @@ function update_vcs() {
     fi
 
     if [ -z "$_NEWEST_COMMIT" ]; then
-        unset VARIABLES_UPDATE_VCS[CI_GIT_COMMIT]
+        unset "VARIABLES_UPDATE_VCS[CI_GIT_COMMIT]"
         return 0
     fi
 
@@ -188,7 +193,7 @@ for package in "${PACKAGES[@]}"; do
     if UTIL_READ_MANAGED_PACAKGE "$package" VARIABLES; then
         update_pkgbuild VARIABLES
         update_vcs VARIABLES
-        UTIL_WRITE_KNOWN_VARIABLES_TO_FILE "$package/.CI_CONFIG" VARIABLES
+        UTIL_WRITE_KNOWN_VARIABLES_TO_FILE "./${package}/.CI/config" VARIABLES
 
         if ! git diff --exit-code --quiet; then
             if [[ -v VARIABLES[CI_REQUIRES_REVIEW] ]] && [ "${VARIABLES[CI_REQUIRES_REVIEW]}" == "true" ]; then
@@ -202,16 +207,23 @@ for package in "${PACKAGES[@]}"; do
                     git commit --amend --no-edit
                 fi
                 MODIFIED_PACKAGES+=("$package")
+                if [ -v CI_HUMAN_REVIEW ] && [ "$CI_HUMAN_REVIEW" == "true" ] && git show-ref --quiet "origin/update-$package"; then
+                    DELETE_BRANCHES+=("update-$package")
+                fi
             fi
         fi
     fi
 done
 
 if [ ${#MODIFIED_PACKAGES[@]} -ne 0 ]; then
-    "$(dirname "$(realpath "$0")")"/schedule-packages.sh "${MODIFIED_PACKAGES[*]}"
+    "$(dirname "$(realpath "$0")")"/schedule-packages.sh "${MODIFIED_PACKAGES[@]}"
 fi
 
 if [ "$COMMIT" = true ]; then
     git tag -f scheduled
-    git push --atomic origin HEAD:main +refs/tags/scheduled
+    git_push_args=()
+    for branch in "${DELETE_BRANCHES[@]}"; do
+        git_push_args+=(":$branch")
+    done
+    git push --atomic origin HEAD:main +refs/tags/scheduled "${git_push_args[@]}"
 fi

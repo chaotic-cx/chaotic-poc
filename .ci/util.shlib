@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 KNOWN_VARIABLE_LIST=(CI_PKGBUILD_SOURCE CI_GIT_COMMIT CI_PKGBUILD_TIMESTAMP)
+EXCLUDE_FILES=(.CI .git .gitignore)
 
 # Get a list of all the packages in the repo
 function UTIL_GET_PACKAGES() {
@@ -12,7 +13,7 @@ function UTIL_PRUNE_UNKNOWN_VARIABLES() {
     local -n PRUNE_VARIABLES=${1:-VARIABLES}
     for key in "${!PRUNE_VARIABLES[@]}"; do
         if [[ ! " ${KNOWN_VARIABLE_LIST[*]} " == *" ${key} "* ]]; then
-            unset PRUNE_VARIABLES["$key"]
+            unset "PRUNE_VARIABLES[$key]"
         fi
     done
 }
@@ -32,7 +33,7 @@ function UTIL_WRITE_VARIABLES_TO_FILE() {
     local -n WRITE_ASSOC_ARRAY=${2:-VARIABLES}
 
     # Clear the file before writing variables
-    > "$file"
+    true > "$file"
 
     for key in "${!WRITE_ASSOC_ARRAY[@]}"; do
         echo "$key=${WRITE_ASSOC_ARRAY[$key]}" >> "$file"
@@ -44,7 +45,7 @@ function UTIL_WRITE_KNOWN_VARIABLES_TO_FILE() {
     local -n WRITE_ASSOC_ARRAY=${2:-VARIABLES}
 
     # Clear the file before writing variables
-    > "$file"
+    true > "$file"
 
     for key in "${!WRITE_ASSOC_ARRAY[@]}"; do
         if [[ ! " ${KNOWN_VARIABLE_LIST[*]} " == *" ${key} "* ]]; then
@@ -55,7 +56,7 @@ function UTIL_WRITE_KNOWN_VARIABLES_TO_FILE() {
 }
 
 function UTIL_READ_MANAGED_PACAKGE() {
-    local target_file="./${1}/.CI_CONFIG"
+    local target_file="./${1}/.CI/config"
     if [ -f "$target_file" ]; then
         local -n READ_MANAGED_ASSOC_ARRAY=${2:-VARIABLES}
         UTIL_READ_VARIABLES_FROM_FILE "$target_file" READ_MANAGED_ASSOC_ARRAY
@@ -152,7 +153,7 @@ function UTIL_FETCH_AUR_TIMESTAMPS() {
     local -n OUTPUT_ASSOC_ARRAY=$1
     local pkgbases=()
 
-    read -a pkgbases <<< "$2"
+    read -ra pkgbases <<< "$2"
 
     # Check size of array
     if [ ${#pkgbases[@]} -eq 0 ]; then
@@ -175,12 +176,11 @@ function UTIL_FETCH_AUR_TIMESTAMPS() {
         if [ $((i % 150)) -eq 149 ] || [ "$i" -eq "$((${#pkgbases[@]} - 1))" ]; then
             local response
             echo "Info: Fetching AUR timestamps for $((i + 1))/${#pkgbases[@]} packages..."
-            echo "Info: $API_URL"
             if response="$(curl -s "$API_URL")"; then
                 local -a res_timestamps
-                mapfile -t res_timestamps <<< "$(echo "$response" | jq -r '.results[].LastModified')"
+                mapfile -t res_timestamps <<< "$(jq -r '.results[].LastModified' <<<"$response")"
                 local -a res_pkgbases
-                mapfile -t res_pkgbases <<< "$(echo "$response" | jq -r '.results[].PackageBase')"
+                mapfile -t res_pkgbases <<< "$(jq -r '.results[].PackageBase' <<<"$response")"
 
                 # Loop through timestamps and pkgbases and add them to the associative array
                 for j in "${!res_timestamps[@]}"; do
@@ -202,4 +202,23 @@ function UTIL_UPDATE_AUR_TIMESTAMP() {
     if [ "$new_timestamp" != "0" ]; then
         VARIABLES_AUR_TIMESTAMP[CI_PKGBUILD_TIMESTAMP]="$new_timestamp"
     fi
+}
+
+# Generate exclude list for rsync, diff, etc.
+# $1: prefix
+# $2: Extra ignores
+function UTIL_GET_EXCLUDE_LIST() {
+    local prefix="$1"
+    local -a extra_ignores=()
+    read -ra extra_ignores <<< "${2:-}"
+
+    local -a exclude_list=("${EXCLUDE_FILES[@]}" "${extra_ignores[@]}")
+
+    local -a exclude_output=()
+    for i in "${exclude_list[@]}"; do
+        exclude_output+=("${prefix}")
+        exclude_output+=("${i}")
+    done
+
+    printf "%s" "${exclude_output[*]}"
 }
