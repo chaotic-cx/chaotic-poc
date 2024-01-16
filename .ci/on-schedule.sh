@@ -274,8 +274,8 @@ for package in "${PACKAGES[@]}"; do
 done
 
 if [ ${#MODIFIED_PACKAGES[@]} -ne 0 ]; then
-    "$(dirname "$(realpath "$0")")"/schedule-packages.sh "${MODIFIED_PACKAGES[*]}"
-    "$(dirname "$(realpath "$0")")"/manage-aur.sh "${MODIFIED_PACKAGES[*]}"
+    "$(dirname "$(realpath "$0")")"/schedule-packages.sh "${MODIFIED_PACKAGES[@]}"
+    "$(dirname "$(realpath "$0")")"/manage-aur.sh "${MODIFIED_PACKAGES[@]}"
 fi
 
 if [ "$COMMIT" = true ]; then
@@ -284,5 +284,5 @@ if [ "$COMMIT" = true ]; then
     for branch in "${DELETE_BRANCHES[@]}"; do
         git_push_args+=(":$branch")
     done
-    git push --atomic "$REPO_URL" HEAD:main +refs/tags/scheduled "${git_push_args[@]}"
+    git push --atomic origin HEAD:main +refs/tags/scheduled "${git_push_args[@]}"
 fi

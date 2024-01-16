@@ -15,7 +15,7 @@ fi
 set -x
 
 declare -a PACKAGES
-read -a PACKAGES <<<"$@" # fixme? mapfile -t / readarray -d both produced unusable results
+read -ar PACKAGES <<<"$@"
 
 # shellcheck source=/dev/null
 source .ci/util.shlib

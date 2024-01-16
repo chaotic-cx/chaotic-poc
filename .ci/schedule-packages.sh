@@ -3,9 +3,8 @@ set -euo pipefail
 set -x
 
 # This script parses the parameters passed to this script and outputs a list of package names to a file
-
 declare -a PACKAGES
-readarray -d " " PACKAGES <<<"$@"
+read -ar PACKAGES <<<"$@"
 
 # shellcheck source=/dev/null
 source .ci/util.shlib
@@ -39,6 +38,3 @@ done
 
 # Write the parameters to a file .ci/schedule-params.txt
 declare -p PARAMS >.ci/schedule-params.txt
-
-# Debug: show params
-cat .ci/schedule-params.txt
