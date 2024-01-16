@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# This script is used to manage a packages corresponding AUR repo
 # No point in running this script if we don't have keys available
 set +x
 if [[ -z ${AUR_KEY+x} ]]; then
@@ -15,7 +16,7 @@ fi
 set -x
 
 declare -a PACKAGES
-read -ar PACKAGES <<<"$@"
+PACKAGES=("$@")
 
 # shellcheck source=/dev/null
 source .ci/util.shlib
@@ -39,7 +40,7 @@ for package in "${PACKAGES[@]}"; do
     unset VARIABLES
     declare -A VARIABLES
     if UTIL_READ_MANAGED_PACAKGE "$package" VARIABLES; then
-        if [[ -v CI_MANAGE_AUR ]] && [[ "$CI_MANAGE_AUR" != 1 ]]; then
+        if [[ -v "VARIABLES[CI_MANAGE_AUR ]" ]] && [[ "${VARIABLES[CI_MANAGE_AUR]}" != "1" ]]; then
             echo "Package $package is not managed by this CI pipeline!"
             continue
         else
