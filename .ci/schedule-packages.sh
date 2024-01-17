@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-
 set -euo pipefail
 set -x
 
 # This script parses the parameters passed to this script and outputs a list of package names to a file
-
 declare -a PACKAGES
 PACKAGES=("$@")
 
+# shellcheck source=/dev/null
 source .ci/util.shlib
 
 if [ -v "PACKAGES[0]" ] && [ "${PACKAGES[0]}" == "all" ]; then
@@ -38,4 +37,4 @@ for i in "${!PACKAGES[@]}"; do
 done
 
 # Write the parameters to a file .ci/schedule-params.txt
-declare -p PARAMS > .ci/schedule-params.txt
+declare -p PARAMS >.ci/schedule-params.txt
