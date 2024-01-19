@@ -2,15 +2,7 @@
 stages: [process, schedule]
 
 variables:
-  BUILD_REPO: chaotic-aur
-  GIT_AUTHOR_EMAIL: ci@garudalinux.org
-  GIT_AUTHOR_NAME: GitLab CI
-  REDIS_SSH_HOST: builds.garudalinux.org
-  REDIS_SSH_PORT: 400
-  REDIS_SSH_USER: package-deployer
-  REPO_NAME: chaotic-aur
-  CI_HUMAN_REVIEW: "true"
-  REPO_URL: https://oauth2:$ACCESS_TOKEN@gitlab.com/JustTNE/chaotic-poc
+  REPO_URL: https://oauth2:$ACCESS_TOKEN@$CI_SERVER_HOST/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME
 
 default:
   before_script:
@@ -54,6 +46,6 @@ do-schedule:
     - echo "$DEPLOY_KEY" >/app/sshkey
     - chmod 400 /app/sshkey
   script:
-    - if [ -f .ci/schedule-params.txt ]; then source ".ci/schedule-params.txt"; /entry_point.sh "${PARAMS[@]}"; fi
+    - if [ -f .ci/schedule-params.txt ]; then set -x; source ".ci/schedule-params.txt"; /entry_point.sh "${PARAMS[@]}"; fi
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
