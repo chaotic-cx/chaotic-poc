@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -x
 set -euo pipefail
 
 # This script is triggered by a scheduled pipeline
@@ -51,6 +52,34 @@ MODIFIED_PACKAGES=()
 DELETE_BRANCHES=()
 UTIL_GET_PACKAGES PACKAGES
 COMMIT="${COMMIT:-false}"
+PUSH=false
+
+# Manage the .state worktree to confine the state of packages to a separate branch
+# The goal is to keep the commit history clean
+function manage_state() {
+    if git show-ref --quiet "origin/state"; then
+        git worktree add .state origin/state --detach
+        if [ ! -f .state/.commit ] || [ "$(git rev-parse HEAD)" != "$(cat .state/.commit)" ]; then
+            git worktree remove .state
+        fi
+    fi
+    git worktree add .newstate -B state --orphan
+}
+
+# Check if the current commit is already an automatic commit
+# If it is, check if we should overwrite it
+function manage_commit() {
+    if [ -v CI_OVERWRITE_COMMITS ] && [ "$CI_OVERWRITE_COMMITS" == "true" ]; then
+        local COMMIT_MSG=""
+        local REGEX="^chore\(packages\): update packages( \[skip ci\])?$"
+        if COMMIT_MSG="$(git log -1 --pretty=%s)"; then
+            if [[ "$COMMIT_MSG" =~ $REGEX ]]; then
+                # Signal that we should not only append to the commit, but also force push the branch
+                COMMIT=force
+            fi
+        fi
+    fi
+}
 
 # Loop through all packages to do optimized aur RPC calls
 # $1 = Output associative array
@@ -137,7 +166,7 @@ function update_via_git() {
 
     if package_changed "$TMPDIR/aur-pulls/$pkgbase" "$pkgbase"; then
         if [ -v CI_HUMAN_REVIEW ] && [ "$CI_HUMAN_REVIEW" == "true" ] && package_major_change "$TMPDIR/aur-pulls/$pkgbase" "$pkgbase"; then
-            UTIL_PRINT_INFO "$pkgbase: Major change detected in."
+            UTIL_PRINT_INFO "$pkgbase: Major change detected."
             VARIABLES_VIA_GIT[CI_REQUIRES_REVIEW]=true
         fi
         # Rsync: delete files in the destination that are not in the source. Exclude deleting .CI, exclude copying .git
@@ -281,6 +310,12 @@ function update_vcs() {
     fi
 }
 
+# Create .state and .newstate worktrees
+manage_state
+
+# Reduce history pollution from automatic commits
+manage_commit
+
 # Collect last modified timestamps from AUR in an efficient way
 collect_aur_timestamps AUR_TIMESTAMPS
 
@@ -293,19 +328,24 @@ fi
 for package in "${PACKAGES[@]}"; do
     unset VARIABLES
     declare -A VARIABLES
-    UTIL_READ_MANAGED_PACAKGE "$package" VARIABLES || VARIABLES[CI_NO_CONFIG]=true
+    UTIL_READ_MANAGED_PACAKGE "$package" VARIABLES || true
     update_pkgbuild VARIABLES
     update_vcs VARIABLES
     UTIL_LOAD_CUSTOM_HOOK "./${package}" "./${package}/.CI/update.sh"
-    if [ ! -v VARIABLES[CI_NO_CONFIG] ]; then
-        UTIL_WRITE_KNOWN_VARIABLES_TO_FILE "./${package}/.CI/config" VARIABLES
-    fi
+    UTIL_WRITE_MANAGED_PACKAGE "$package" VARIABLES
 
     if ! git diff --exit-code --quiet; then
         if [[ -v VARIABLES[CI_REQUIRES_REVIEW] ]] && [ "${VARIABLES[CI_REQUIRES_REVIEW]}" == "true" ]; then
-            .ci/create-pr.sh "$package"
+            # The updated state of the package will still be written to the state branch, even if the main content goes onto the PR branch
+            # This is okay, because merging the PR branch will trigger a build, so that behavior is expected and prevents a double execution
+            if [ "$COMMIT" == "false" ]; then
+                .ci/create-pr.sh "$package" false
+            else
+                .ci/create-pr.sh "$package" true
+            fi
+            PUSH=true
         else
-            git add .
+            git add "$package"
             if [ "$COMMIT" == "false" ]; then
                 COMMIT=true
                 [ -v GITLAB_CI ] && git commit -q -m "chore(packages): update packages"
@@ -313,6 +353,7 @@ for package in "${PACKAGES[@]}"; do
             else
                 git commit -q --amend --no-edit
             fi
+            PUSH=true
             MODIFIED_PACKAGES+=("$package")
             if [ -v CI_HUMAN_REVIEW ] && [ "$CI_HUMAN_REVIEW" == "true" ] && git show-ref --quiet "origin/update-$package"; then
                 DELETE_BRANCHES+=("update-$package")
@@ -321,17 +362,22 @@ for package in "${PACKAGES[@]}"; do
     fi
 done
 
+git rev-parse HEAD > .newstate/.commit
+git -C .newstate add -A
+git -C .newstate commit -q -m "chore(state): update state" --allow-empty
+
 if [ ${#MODIFIED_PACKAGES[@]} -ne 0 ]; then
     .ci/schedule-packages.sh schedule "${MODIFIED_PACKAGES[@]}"
     .ci/manage-aur.sh "${MODIFIED_PACKAGES[@]}"
 fi
 
-if [ "$COMMIT" = true ]; then
+if [ "$PUSH" = true ]; then
     git tag -f scheduled
     git_push_args=()
     for branch in "${DELETE_BRANCHES[@]}"; do
         git_push_args+=(":$branch")
     done
     [ -v GITLAB_CI ] && git_push_args+=("-o" "ci.skip")
-    git push --atomic origin HEAD:main +refs/tags/scheduled "${git_push_args[@]}"
+    [ "$COMMIT" == "force" ] && git_push_args+=("--force-with-lease=main")
+    git push --atomic origin HEAD:main +refs/tags/scheduled +state "${git_push_args[@]}"
 fi
