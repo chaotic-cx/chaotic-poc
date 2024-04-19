@@ -1,6 +1,6 @@
 # Colored makepkg-like functions
 msg_blue() {
-    printf "${blue}==>${bold} $1${all_off}\n"
+    printf "${blue}==>${bold} $1${all_off}\n"e
 }
 
 note() {
