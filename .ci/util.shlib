@@ -70,19 +70,20 @@ function UTIL_WRITE_KNOWN_VARIABLES_TO_FILE() {
 function UTIL_READ_MANAGED_PACAKGE() {
     set -euo pipefail
     local target_file="./${1}/.CI/config"
+    local ret=1
+    local -n READ_MANAGED_ASSOC_ARRAY=${2:-VARIABLES}
     if [ -f "$target_file" ]; then
-        local -n READ_MANAGED_ASSOC_ARRAY=${2:-VARIABLES}
         UTIL_READ_VARIABLES_FROM_FILE "$target_file" READ_MANAGED_ASSOC_ARRAY
-
         # Check if any variable at all was read
         if [ ${#READ_MANAGED_ASSOC_ARRAY[@]} -ne 0 ]; then
             UTIL_PRUNE_UNKNOWN_VARIABLES READ_MANAGED_ASSOC_ARRAY
-            # shellcheck disable=2153
-            READ_MANAGED_ASSOC_ARRAY[PKGBASE]="$1"
-            return 0
+            ret=0
         fi
     fi
-    return 1
+
+    # shellcheck disable=2153
+    READ_MANAGED_ASSOC_ARRAY[PKGBASE]="$1"
+    return $ret
 }
 
 # Extract both the normal url and the fragment

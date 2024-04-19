@@ -293,28 +293,29 @@ fi
 for package in "${PACKAGES[@]}"; do
     unset VARIABLES
     declare -A VARIABLES
-    if UTIL_READ_MANAGED_PACAKGE "$package" VARIABLES; then
-        update_pkgbuild VARIABLES
-        update_vcs VARIABLES
-        UTIL_LOAD_CUSTOM_HOOK "./${package}" "./${package}/.CI/update.sh"
+    UTIL_READ_MANAGED_PACAKGE "$package" VARIABLES || VARIABLES[CI_NO_CONFIG]=true
+    update_pkgbuild VARIABLES
+    update_vcs VARIABLES
+    UTIL_LOAD_CUSTOM_HOOK "./${package}" "./${package}/.CI/update.sh"
+    if [ ! -v VARIABLES[CI_NO_CONFIG] ]; then
         UTIL_WRITE_KNOWN_VARIABLES_TO_FILE "./${package}/.CI/config" VARIABLES
+    fi
 
-        if ! git diff --exit-code --quiet; then
-            if [[ -v VARIABLES[CI_REQUIRES_REVIEW] ]] && [ "${VARIABLES[CI_REQUIRES_REVIEW]}" == "true" ]; then
-                .ci/create-pr.sh "$package"
+    if ! git diff --exit-code --quiet; then
+        if [[ -v VARIABLES[CI_REQUIRES_REVIEW] ]] && [ "${VARIABLES[CI_REQUIRES_REVIEW]}" == "true" ]; then
+            .ci/create-pr.sh "$package"
+        else
+            git add .
+            if [ "$COMMIT" == "false" ]; then
+                COMMIT=true
+                [ -v GITLAB_CI ] && git commit -q -m "chore(packages): update packages"
+                [ -v GITHUB_ACTIONS ] && git commit -q -m "chore(packages): update packages [skip ci]"
             else
-                git add .
-                if [ "$COMMIT" == "false" ]; then
-                    COMMIT=true
-                    [ -v GITLAB_CI ] && git commit -q -m "chore(packages): update packages"
-                    [ -v GITHUB_ACTIONS ] && git commit -q -m "chore(packages): update packages [skip ci]"
-                else
-                    git commit -q --amend --no-edit
-                fi
-                MODIFIED_PACKAGES+=("$package")
-                if [ -v CI_HUMAN_REVIEW ] && [ "$CI_HUMAN_REVIEW" == "true" ] && git show-ref --quiet "origin/update-$package"; then
-                    DELETE_BRANCHES+=("update-$package")
-                fi
+                git commit -q --amend --no-edit
+            fi
+            MODIFIED_PACKAGES+=("$package")
+            if [ -v CI_HUMAN_REVIEW ] && [ "$CI_HUMAN_REVIEW" == "true" ] && git show-ref --quiet "origin/update-$package"; then
+                DELETE_BRANCHES+=("update-$package")
             fi
         fi
     fi
