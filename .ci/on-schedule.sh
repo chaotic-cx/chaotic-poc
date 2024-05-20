@@ -61,7 +61,7 @@ function manage_state() {
         git worktree add .state origin/state --detach
         # We have to make sure that the commit is still in the history of the state branch
         # Otherwise, this implies a force push happened. We need to re-create the state from scratch.
-        if [ ! -f .state/.commit ] || ! git branch --contains "$(cat .state/.commit)"
+        if [ ! -f .state/.commit ] || ! git branch --contains "$(cat .state/.commit)"; then
             git worktree remove .state
         fi
     fi

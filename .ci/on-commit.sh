@@ -107,6 +107,8 @@ parse_commit_messages
 # Parse changed files
 parse_changed_files
 
+git_push_args=()
+
 # Check if we have any packages to build
 if [ ${#PACKAGES[@]} -eq 0 ] && [ "$PACKAGE_REMOVED" = false ]; then
     UTIL_PRINT_INFO "No packages to build, exiting gracefully."
@@ -123,6 +125,8 @@ else
             popd >/dev/null
             git -C .state add -A
             git -C .state commit -q --amend --no-edit
+
+            git_push_args+=("state")
         fi
 
         # Check if we have to build all packages
@@ -144,4 +148,4 @@ else
 fi
 
 git tag -f scheduled
-git push --atomic -f origin refs/tags/scheduled state
+git push --atomic -f origin refs/tags/scheduled "${git_push_args[@]}"
