@@ -3,8 +3,8 @@
 # Co-Maintainer: Ankur <forum dot garudalinux dot org slash u slash ankur slash summary>
 
 pkgname=garuda-hyprland-settings
-pkgver="0.4.123"
-_commit='b1734e60e294779d06be68d9caa98fe17b2f43b3'
+pkgver="0.4.127"
+_commit='73b8af0e4c59f840e2c73769db36b7d6d63a3028'
 pkgrel=1
 arch=('any')
 license=('GPL')
