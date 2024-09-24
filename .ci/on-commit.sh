@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# This script is triggered by a pipeline which runs after every commit
+# shellcheck source=./util.shlib
 source .ci/util.shlib
 
 # Read config file into global variables
@@ -121,7 +123,7 @@ else
 
             git worktree add .state state
             pushd .state >/dev/null
-            rm "${!PACKAGES[@]}"
+            rm  -f "${!PACKAGES[@]}"
             popd >/dev/null
             git -C .state add -A
             git -C .state commit -q --amend --no-edit

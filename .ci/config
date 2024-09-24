@@ -1,9 +1,10 @@
 BUILD_REPO=garuda
-GIT_AUTHOR_EMAIL=ci@garudalinux.org
-GIT_AUTHOR_NAME=GitLab CI
+CI_LIB_DB="https://arch.mirror.constant.com/core/os/x86_64/core.db https://arch.mirror.constant.com/community/os/x86_64/community.db https://arch.mirror.constant.com/extra/os/x86_64/extra.db https://builds.garudalinux.org/repos/chaotic-aur/x86_64/chaotic-aur.db https://builds.garudalinux.org/repos/garuda/x86_64/garuda.db"
+CI_HUMAN_REVIEW=false
+GIT_AUTHOR_EMAIL=ci@chaotic.cx
+GIT_AUTHOR_NAME="GitLab CI"
 REDIS_SSH_HOST=builds.garudalinux.org
 REDIS_SSH_PORT=400
 REDIS_SSH_USER=package-deployer
 REPO_NAME=garuda
-CI_HUMAN_REVIEW=true
 TEMPLATE_ENABLE_UPDATES=false

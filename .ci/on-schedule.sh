@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-set -x
 set -euo pipefail
 
 # This script is triggered by a scheduled pipeline
-
+# shellcheck source=./util.shlib
 source .ci/util.shlib
 
 # Read config file into global variables
@@ -18,7 +17,7 @@ if [ -v TRIGGER ]; then
     UTIL_GET_PACKAGES PACKAGES
     for package in "${PACKAGES[@]}"; do
         unset VARIABLES
-        declare -A VARIABLES
+        declare -A VARIABLES=()
         if UTIL_READ_MANAGED_PACAKGE "$package" VARIABLES; then
             if [ -v "VARIABLES[CI_ON_TRIGGER]" ]; then
                 if [ "${VARIABLES[CI_ON_TRIGGER]}" == "$TRIGGER" ]; then
@@ -36,6 +35,10 @@ fi
 git config --global user.name "$GIT_AUTHOR_NAME"
 git config --global user.email "$GIT_AUTHOR_EMAIL"
 
+# Silence some very insane log spam. Master is set by default and the silenced
+# message is declared as hint.
+git config --global init.defaultBranch "master"
+
 if [ -v TEMPLATE_ENABLE_UPDATES ] && [ "$TEMPLATE_ENABLE_UPDATES" == "true" ]; then
     .ci/update-template.sh && UTIL_PRINT_INFO "Updated CI template." && exit 0 || true
 fi
@@ -49,6 +52,8 @@ fi
 PACKAGES=()
 declare -A AUR_TIMESTAMPS
 MODIFIED_PACKAGES=()
+# shellcheck disable=SC2034
+declare -A CHANGED_LIBS=()
 DELETE_BRANCHES=()
 UTIL_GET_PACKAGES PACKAGES
 COMMIT="${COMMIT:-false}"
@@ -58,14 +63,14 @@ PUSH=false
 # The goal is to keep the commit history clean
 function manage_state() {
     if git show-ref --quiet "origin/state"; then
-        git worktree add .state origin/state --detach
+        git worktree add .state origin/state --detach -q
         # We have to make sure that the commit is still in the history of the state branch
         # Otherwise, this implies a force push happened. We need to re-create the state from scratch.
-        if [ ! -f .state/.commit ] || ! git branch --contains "$(cat .state/.commit)"; then
+        if [ ! -f .state/.commit ] || ! git branch --contains "$(cat .state/.commit)" &>/dev/null; then
             git worktree remove .state
         fi
     fi
-    git worktree add .newstate -B state --orphan
+    git worktree add .newstate -B state --orphan -q
 }
 
 # Check if the current commit is already an automatic commit
@@ -93,7 +98,7 @@ function collect_aur_timestamps() {
 
     for package in "${PACKAGES[@]}"; do
         unset VARIABLES
-        declare -gA VARIABLES
+        declare -A VARIABLES=()
         if UTIL_READ_MANAGED_PACAKGE "$package" VARIABLES; then
             if [ -v "VARIABLES[CI_PKGBUILD_SOURCE]" ]; then
                 local PKGBUILD_SOURCE="${VARIABLES[CI_PKGBUILD_SOURCE]}"
@@ -105,7 +110,75 @@ function collect_aur_timestamps() {
     done
 
     # Get all timestamps from AUR
-    UTIL_FETCH_AUR_TIMESTAMPS collect_aur_timestamps_output "${AUR_PACKAGES[*]}"
+    http_proxy="$CI_AUR_PROXY" https_proxy="$CI_AUR_PROXY" UTIL_FETCH_AUR_TIMESTAMPS collect_aur_timestamps_output "${AUR_PACKAGES[*]}"
+}
+
+function collect_changed_libs() {
+    set -euo pipefail
+
+    if [ -z "$CI_LIB_DB" ]; then
+        return 0
+    fi
+    if [ ! -f .state/versions ]; then
+        mkdir -p .state || true
+        touch .state/versions
+    fi
+
+    IFS=' ' read -r -a link_array <<<"${CI_LIB_DB//\"/}"
+
+    _TEMP_LIB="$(mktemp -d)"
+
+    for repo in "${link_array[@]}"; do
+        UTIL_PARSE_DATABASE "${repo}" "${_TEMP_LIB}"
+    done
+
+    # Sort versions file in-place because comm requires it
+    sort -o "${_TEMP_LIB}/versions.new"{,}
+    comm -23 .state/versions "${_TEMP_LIB}/versions.new" >"$_TEMP_LIB/versions.diff"
+
+    while IFS= read -r line; do
+        IFS=':' read -r -a pkg <<<"$line"
+        CHANGED_LIBS["${pkg[0]}"]="true"
+    done <"$_TEMP_LIB/versions.diff"
+}
+
+function update-lib-bump() {
+    local bump=0
+    local -n pkg_config=${1:-VARIABLES}
+
+    if [[ ! -v pkg_config[CI_REBUILD_TRIGGERS] ]]; then
+        return 0
+    fi
+
+    # Split the string on : into an array
+    IFS=':' read -r -a LIBS <<<"${CONFIG[CI_REBUILD_TRIGGERS]}"
+    for library in "${LIBS[@]}"; do
+        if [[ -v CHANGED_LIBS["$library"] ]]; then
+            bump=1
+            break
+        fi
+    done
+
+    if [ $bump -eq 1 ]; then
+        UTIL_PRINT_INFO "Bumping pkgrel of $package because of a detected library mismatch"
+        
+        local _PKGVER _BUMPCOUNT _PKGVER_IN_DB
+        # Example format: 1:1.2.3-1/1 or 1.2.3
+        # Split at slash, but if it doesnt exist, set it to 1
+        _PKGVER="${CONFIG[CI_PACKAGE_BUMP]%%/*}"
+        _BUMPCOUNT="${CONFIG[CI_PACKAGE_BUMP]#*/}"
+        _PKGVER_IN_DB=$(grep "$package:" "${_TEMP_LIB}/versions.new" | cut -d ":" -f 2)
+
+        if [[ "${_BUMPCOUNT}" == "${CONFIG[CI_PACKAGE_BUMP]}" ]]; then
+            _BUMPCOUNT=1
+        fi
+
+        if [ "$(vercmp "${_PKGVER}" "${_PKGVER_IN_DB}")" = "0" ]; then
+            pkg_config[CI_PACKAGE_BUMP]="$_PKGVER_IN_DB/$_BUMPCOUNT"
+        else 
+            pkg_config[CI_PACKAGE_BUMP]=""
+        fi
+    fi
 }
 
 # $1: dir1
@@ -161,7 +234,21 @@ function update_via_git() {
     local -n VARIABLES_VIA_GIT=${1:-VARIABLES}
     local pkgbase="${VARIABLES_VIA_GIT[PKGBASE]}"
 
-    git clone -q --depth=1 "$2" "$TMPDIR/aur-pulls/$pkgbase"
+    for i in {1..2}; do
+        if git clone -q --depth=1 "$2" "$TMPDIR/aur-pulls/$pkgbase" 2>/dev/null; then
+            break
+        fi
+        if [ "$i" -ne 2 ]; then
+            UTIL_PRINT_WARNING "$pkgbase: Failed to clone $2. Retrying in 30 seconds."
+            sleep 30
+        else
+            # Give up
+            false
+        fi
+    done
+
+    # Ratelimits
+    sleep "$CI_CLONE_DELAY"
 
     # We always run shfmt on the PKGBUILD. Two runs of shfmt on the same file should not change anything
     shfmt -w "$TMPDIR/aur-pulls/$pkgbase/PKGBUILD"
@@ -241,12 +328,11 @@ function update_pkgbuild() {
     local pkgbase="${VARIABLES_UPDATE_PKGBUILD[PKGBASE]}"
 
     if ! [ -v "VARIABLES_UPDATE_PKGBUILD[CI_PKGBUILD_SOURCE]" ] || [ -z "${VARIABLES_UPDATE_PKGBUILD[CI_PKGBUILD_SOURCE]}" ]; then
-        UTIL_PRINT_WARNING "$pkgbase: CI_PKGBUILD_SOURCE is not set. If this is on purpose, please set it to 'custom'." 
+        UTIL_PRINT_WARNING "$pkgbase: CI_PKGBUILD_SOURCE is not set. If this is on purpose, please set it to 'custom'."
         return 0
     fi
 
     local PKGBUILD_SOURCE="${VARIABLES_UPDATE_PKGBUILD[CI_PKGBUILD_SOURCE]}"
-
 
     if [[ "$PKGBUILD_SOURCE" == "custom" ]]; then
         return 0
@@ -269,14 +355,12 @@ function update_pkgbuild() {
         # Check if CI_PKGBUILD_TIMESTAMP is set
         if [ -v "VARIABLES_UPDATE_PKGBUILD[CI_PKGBUILD_TIMESTAMP]" ]; then
             local PKGBUILD_TIMESTAMP="${VARIABLES_UPDATE_PKGBUILD[CI_PKGBUILD_TIMESTAMP]}"
-            if [ "$PKGBUILD_TIMESTAMP" != "$NEW_TIMESTAMP" ]; then
-                update_via_git VARIABLES_UPDATE_PKGBUILD "$git_url"
-                UTIL_UPDATE_AUR_TIMESTAMP VARIABLES_UPDATE_PKGBUILD "$NEW_TIMESTAMP"
+            if [ "$PKGBUILD_TIMESTAMP" == "$NEW_TIMESTAMP" ]; then
+                return 0
             fi
-        else
-            update_via_git VARIABLES_UPDATE_PKGBUILD "$git_url"
-            UTIL_UPDATE_AUR_TIMESTAMP VARIABLES_UPDATE_PKGBUILD "$NEW_TIMESTAMP"
         fi
+        http_proxy="$CI_AUR_PROXY" https_proxy="$CI_AUR_PROXY" update_via_git VARIABLES_UPDATE_PKGBUILD "$git_url"
+        UTIL_UPDATE_AUR_TIMESTAMP VARIABLES_UPDATE_PKGBUILD "$NEW_TIMESTAMP"
     fi
 }
 
@@ -321,6 +405,9 @@ manage_commit
 # Collect last modified timestamps from AUR in an efficient way
 collect_aur_timestamps AUR_TIMESTAMPS
 
+# Parse database files for library version changes
+collect_changed_libs CHANGED_LIBS
+
 mkdir "$TMPDIR/aur-pulls"
 if [ -f "./.editorconfig" ]; then
     cp "./.editorconfig" "$TMPDIR/aur-pulls/.editorconfig"
@@ -329,14 +416,16 @@ fi
 # Loop through all packages to check if they need to be updated
 for package in "${PACKAGES[@]}"; do
     unset VARIABLES
-    declare -A VARIABLES
+    declare -A VARIABLES=()
     UTIL_READ_MANAGED_PACAKGE "$package" VARIABLES || true
     update_pkgbuild VARIABLES
     update_vcs VARIABLES
-    UTIL_LOAD_CUSTOM_HOOK "./${package}" "./${package}/.CI/update.sh"
+    update-lib-bump VARIABLES
+    UTIL_LOAD_CUSTOM_HOOK "./${package}" "./${package}/.CI/update.sh" || true
     UTIL_WRITE_MANAGED_PACKAGE "$package" VARIABLES
 
-    if ! git diff --exit-code --quiet; then
+    if ! git diff --exit-code --quiet -- "$package"; then
+        # shellcheck disable=SC2102
         if [[ -v VARIABLES[CI_REQUIRES_REVIEW] ]] && [ "${VARIABLES[CI_REQUIRES_REVIEW]}" == "true" ]; then
             # The updated state of the package will still be written to the state branch, even if the main content goes onto the PR branch
             # This is okay, because merging the PR branch will trigger a build, so that behavior is expected and prevents a double execution
@@ -355,18 +444,36 @@ for package in "${PACKAGES[@]}"; do
                 [ -v GITLAB_CI ] && git commit -q -m "chore(packages): update packages"
                 [ -v GITHUB_ACTIONS ] && git commit -q -m "chore(packages): update packages [skip ci]"
             else
-                git commit -q --amend --no-edit
+                git commit -q --amend --no-edit --date=now
             fi
             PUSH=true
-            MODIFIED_PACKAGES+=("$package")
+
+            # We don't want to schedule packages that have a specific trigger to prevent 
+            # large packages getting scheduled too often and wasting resources (e.g. llvm-git)
+            if [[ ${VARIABLES[CI_ON_TRIGGER]+x} ]]; then 
+                UTIL_PRINT_INFO "Will not schedule $package because it has trigger ${VARIABLES[CI_ON_TRIGGER]} set."
+            else 
+                MODIFIED_PACKAGES+=("$package")
+            fi 
+
             if [ -v CI_HUMAN_REVIEW ] && [ "$CI_HUMAN_REVIEW" == "true" ] && git show-ref --quiet "origin/update-$package"; then
                 DELETE_BRANCHES+=("update-$package")
             fi
         fi
+    # We also need to check the worktree for changes, because we might have an updated git hash
+    elif ! UTIL_CHECK_STATE_DIFF "$package"; then
+        MODIFIED_PACKAGES+=("$package")
     fi
 done
 
-git rev-parse HEAD > .newstate/.commit
+# Update the lib versions state file
+if [ $PUSH == true ]; then
+    mv "$_TEMP_LIB/versions.new" .newstate/versions
+    git add .newstate/versions
+    git commit -q --amend --no-edit --date=now
+fi
+
+git rev-parse HEAD >.newstate/.commit
 git -C .newstate add -A
 git -C .newstate commit -q -m "chore(state): update state" --allow-empty
 
@@ -383,5 +490,5 @@ if [ "$PUSH" = true ]; then
     done
     [ -v GITLAB_CI ] && git_push_args+=("-o" "ci.skip")
     [ "$COMMIT" == "force" ] && git_push_args+=("--force-with-lease=main")
-    git push --atomic origin HEAD:main +refs/tags/scheduled +state "${git_push_args[@]}"
+    git push --atomic origin HEAD:main +state +refs/tags/scheduled "${git_push_args[@]}"
 fi
