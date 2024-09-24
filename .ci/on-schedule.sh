@@ -168,8 +168,8 @@ function update-lib-bump() {
         fi
 
         if [[ -v pkg_config[CI_PACKAGE_BUMP] ]]; then
-            _PKGVER="${CONFIG[CI_PACKAGE_BUMP]%%/*}"
-            _BUMPCOUNT="${CONFIG[CI_PACKAGE_BUMP]#*/}"
+            _PKGVER="${pkg_config[CI_PACKAGE_BUMP]%%/*}"
+            _BUMPCOUNT="${pkg_config[CI_PACKAGE_BUMP]#*/}"
 
             # If the version we except matches the version in the database
             if [ "$(vercmp "${_PKGVER}" "${_PKGVER_IN_DB}")" = "0" ]; then
