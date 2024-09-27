@@ -1,36 +1,33 @@
-# Maintainer: AlphaLynx <alphalynx@protonmail.com>
-pkgname=ss
-pkgver=1.1.3
-pkgrel=2
-pkgdesc='Parallel SSH Executor'
-arch=('x86_64')
-url="https://github.com/bahamas10/$pkgname"
-license=('MIT')
-depends=('glibc')
-makedepends=('git')
-source=("$pkgname::git+https://github.com/bahamas10/sshp.git#tag=v$pkgver")
-sha256sums=('SKIP')
+# Maintainer: haxibami <contact at haxibami dot net>
 
-pkgver() {
-	cd "$srcdir/$pkgname"
-	git describe --tags | sed 's/^v//'
+pkgname=qdrant
+pkgver=1.11.5
+pkgrel=1
+pkgdesc="Vector Database for the next generation of AI applications"
+arch=('any')
+url="https://github.com/qdrant/qdrant"
+license=('Apache')
+depends=('gcc-libs' 'glibc')
+makedepends=('cargo' 'cmake' 'mold' 'clang' 'protobuf')
+source=(
+	"${url}/archive/refs/tags/v${pkgver}.tar.gz"
+)
+sha256sums=('18219a50e8fe7eb8d4e4a672570ca4835a57177e06e8fc76648834fedc228bdf')
+
+prepare() {
+	cd "${srcdir}/${pkgname}-${pkgver}"
+	cargo fetch
 }
 
 build() {
-	cd "$srcdir/$pkgname"
-	make
-}
-
-check() {
-	cd "$srcdir/$pkgname"
-	make -k check
+	cd "${srcdir}/${pkgname}-${pkgver}"
+	# note: (GCC +) mold or (Clang +) lld are required to build with LTO
+	export RUSTFLAGS="${RUSTFLAGS} -Clink-arg=-fuse-ld=mold"
+	# export CC=clang CXX=clang++ RUSTFLAGS="${RUSTFLAGS} -Clink-arg=-fuse-ld=lld"
+	cargo build --release --bin qdrant
 }
 
 package() {
-	cd "$srcdir/$pkgname"
-	install -Dm755 sshp "$pkgdir/usr/bin/$pkgname"
-	install -Dm644 man/sshp.1 "$pkgdir/usr/share/man/man1/$pkgname.1"
-	install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
-	install -Dm644 CHANGES.md "pkgdir/usr/share/doc/$pkgname/CHANGES.md"
-	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	cd "${srcdir}/${pkgname}-${pkgver}"
+	install -Dm755 "target/release/${pkgname}" "${pkgdir}/usr/bin/${pkgname}"
 }

@@ -1,13 +1,18 @@
-pkgbase = sshp
-	pkgdesc = Parallel SSH Executor
-	pkgver = 1.1.3
-	pkgrel = 2
-	url = https://github.com/bahamas10/sshp
-	arch = x86_64
-	license = MIT
-	makedepends = git
+pkgbase = qdrant
+	pkgdesc = Vector Database for the next generation of AI applications
+	pkgver = 1.11.5
+	pkgrel = 1
+	url = https://github.com/qdrant/qdrant
+	arch = any
+	license = Apache
+	makedepends = cargo
+	makedepends = cmake
+	makedepends = mold
+	makedepends = clang
+	makedepends = protobuf
+	depends = gcc-libs
 	depends = glibc
-	source = sshp::git+https://github.com/bahamas10/sshp.git#tag=v1.1.3
-	sha256sums = SKIP
+	source = https://github.com/qdrant/qdrant/archive/refs/tags/v1.11.5.tar.gz
+	sha256sums = 18219a50e8fe7eb8d4e4a672570ca4835a57177e06e8fc76648834fedc228bdf
 
-pkgname = sshp
+pkgname = qdrant
