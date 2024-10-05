@@ -65,6 +65,8 @@ COMMIT_MESSAGE_PACKAGES=()
 function manage_state() {
     if git show-ref --quiet "origin/state"; then
         git worktree add .state origin/state --detach -q
+    else
+        mkdir .state
     fi
     git worktree add .newstate -B state --orphan -q
 }
@@ -139,17 +141,10 @@ function generate-commit() {
         COMMIT_MESSAGE+=" [skip ci]"
     fi
     if [ "$1" == ".final" ]; then
-        local COMMIT_DESCRIPTION="" packages=""
+        local COMMIT_DESCRIPTION=""
         if (( ${#COMMIT_MESSAGE_PACKAGES[@]} > 0 )); then
-            packages="$(printf "%s, " "${COMMIT_MESSAGE_PACKAGES[@]}")"
-            COMMIT_DESCRIPTION="Package files were changed in the following package"
-            if (( ${#COMMIT_MESSAGE_PACKAGES[@]} > 1 )); then
-                COMMIT_DESCRIPTION+=$'s:\n'
-            else
-                COMMIT_DESCRIPTION+=$':\n'
-            fi
-            COMMIT_DESCRIPTION+="${packages%, }."
-            COMMIT_DESCRIPTION+=$'\n\nNote: This is not the same as the list of packages that were scheduled for a rebuild. Certain packages listed here may be built on a different schedule.'
+            local packages="$(printf "%s, " "${COMMIT_MESSAGE_PACKAGES[@]}")"
+            COMMIT_DESCRIPTION+="changed: ${packages%, }"
         fi
         git commit -q --amend -m "$COMMIT_MESSAGE" -m "$COMMIT_DESCRIPTION"
     else
@@ -474,7 +469,11 @@ for package in "${PACKAGES[@]}"; do
         fi
     # We also need to check the worktree for changes, because we might have an updated git hash
     elif ! UTIL_CHECK_STATE_DIFF "$package"; then
-        MODIFIED_PACKAGES+=("$package")
+        if [[ -v "VARIABLES[CI_ON_TRIGGER]" ]]; then
+            UTIL_PRINT_INFO "Will not schedule $package because it has trigger ${VARIABLES[CI_ON_TRIGGER]} set."
+        else
+            MODIFIED_PACKAGES+=("$package")
+        fi
     fi
 done
 
